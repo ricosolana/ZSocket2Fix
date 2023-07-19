@@ -1,2 +1,2 @@
-# ZSocket2Fix
- Valheim over plain TCP
+# ValhallaDumper
+data serializing mod for Valhalla (use with Valheim)
