@@ -27,7 +27,9 @@ namespace ZSocket2Fix
 
         Harmony _harmony;
 
-        static bool m_disableSteam = false;
+        static bool m_disableSteam = true;
+
+        static bool m_isDedicated = false;
 
         private void Awake()
         {
@@ -42,9 +44,19 @@ namespace ZSocket2Fix
                 if (text3 == "-nosteam")
                 {
                     m_disableSteam = true;
-                    ZLog.LogWarning("ZSocket2Fix disabling steam integration...");
+                } else if (text3 == "-password")
+                {
+                    m_isDedicated = true;
                 }
             }
+
+            if (m_disableSteam && !m_isDedicated)
+            {
+                ZLog.LogWarning("ZSocket2Fix disabling steam integration...");
+            }
+
+            if (m_isDedicated)
+                m_disableSteam = false;
 
             _harmony = Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly(), harmonyInstanceId: PluginGUID);
 
@@ -181,28 +193,34 @@ namespace ZSocket2Fix
             [HarmonyPatch(nameof(ZNet.Awake))]
             static IEnumerable<CodeInstruction> AwakeTranspiler(IEnumerable<CodeInstruction> instructions)
             {
+                var match = new CodeMatcher(instructions);
+
                 if (m_disableSteam)
                 {
-                    return new CodeMatcher(instructions)
+                    // only valid with client?
+                    match = match
                         // Remove SteamFriends.GetPersonaName
-                        .MatchForward(useEnd: false, new CodeMatch(inst => inst?.operand?.ToString().Contains("GetPersonaName") ?? false))
-                        .SetAndAdvance(OpCodes.Ldstr, "nosteam")
-                        
+                        .MatchForward(useEnd: false, new CodeMatch(inst => inst?.operand?.ToString().Contains("GetPersonaName") ?? false));
+                    //.SetAndAdvance(OpCodes.Ldstr, "nosteam");
+
+                    if (match.IsValid)
+                        match = match.SetAndAdvance(OpCodes.Ldstr, "nosteam");
+                    else
+                        match = match.Start();
+
+                    match = match
                         // Prevent openserver clause
                         .MatchForward(useEnd: false, new CodeMatch(OpCodes.Ldsfld, typeof(ZNet).GetField(nameof(ZNet.m_openServer))))
-                        .SetAndAdvance(OpCodes.Ldc_I4_0, null)
-                        
-                        // Add postfix to 
-                        .End()
-                        .Insert(new CodeInstruction(
-                            OpCodes.Call,
-                            Transpilers.EmitDelegate<Action>(ZNetAwakePostfixDelegate).operand)
-                        )
-
-                        // Finish
-                        .InstructionEnumeration();
+                        .SetAndAdvance(OpCodes.Ldc_I4_0, null);
                 }
-                return instructions;
+                return match
+                    // postfix
+                    .End()
+                    .Insert(new CodeInstruction(
+                        OpCodes.Call,
+                        Transpilers.EmitDelegate<Action>(ZNetAwakePostfixDelegate).operand)
+                    )
+                    .InstructionEnumeration();
             }
 
             [HarmonyTranspiler]
@@ -214,6 +232,28 @@ namespace ZSocket2Fix
                         .MatchForward(useEnd: false, new CodeMatch(OpCodes.Callvirt, typeof(ZSteamMatchmaking).GetMethod(nameof(ZSteamMatchmaking.ReleaseSessionTicket))))
                         .Advance(-1)
                         .RemoveInstructions(4)
+                        .InstructionEnumeration();
+                }
+                return instructions;
+            }
+
+            [HarmonyTranspiler]
+            [HarmonyPatch(nameof(ZNet.SendPeerInfo))]
+            static IEnumerable<CodeInstruction> SendPeerInfoTranspiler(IEnumerable<CodeInstruction> instructions)
+            {
+                if (m_disableSteam)
+                {
+                    return new CodeMatcher(instructions)
+                        .MatchForward(useEnd: false, new CodeMatch(OpCodes.Callvirt, typeof(ZSteamMatchmaking).GetMethod(nameof(ZSteamMatchmaking.RequestSessionTicket))))
+                        .Advance(-2)
+                        .RemoveInstructions(3)
+
+                        // instantiate an empty array in place of RequestSessionTicket call
+                        .InsertAndAdvance(
+                            new CodeInstruction(OpCodes.Ldc_I4_0, null),
+                            new CodeInstruction(OpCodes.Newarr, typeof(byte))
+                        )
+
                         .InstructionEnumeration();
                 }
                 return instructions;
