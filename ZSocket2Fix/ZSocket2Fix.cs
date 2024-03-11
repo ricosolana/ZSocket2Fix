@@ -273,7 +273,7 @@ namespace ZSocket2Fix
                 {
                     // Force remove any client match for GetPersonaName
                     match = match
-                        // Remove SteamFriends.GetPersonaName
+                        // Removes SteamFriends.GetPersonaName
                         .MatchForward(useEnd: false, new CodeMatch(ci => ci.opcode.Equals(OpCodes.Call) && ci.operand.ToString().Contains(nameof(Steamworks.SteamFriends.GetPersonaName))));
                     
                     if (match.IsValid)
@@ -302,6 +302,25 @@ namespace ZSocket2Fix
             {
                 if (m_disableSteamSetting.Value)
                 {
+                    // TODO 
+                    // More precise, testing needed
+                    //return new CodeMatcher(instructions)
+                    //    .MatchForward(useEnd: false, 
+                    //        new CodeMatch(
+                    //            OpCodes.Call,   
+                    //            typeof(ZSteamMatchmaking).GetMethod(nameof(ZSteamMatchmaking.instance))),
+                    //        new CodeMatch(
+                    //            OpCodes.Callvirt,
+                    //            typeof(ZSteamMatchmaking).GetMethod(nameof(ZSteamMatchmaking.ReleaseSessionTicket))),
+                    //        new CodeMatch(
+                    //            OpCodes.Call,
+                    //            typeof(ZSteamMatchmaking).GetMethod(nameof(ZSteamMatchmaking.instance))),
+                    //        new CodeMatch(
+                    //            OpCodes.Callvirt,
+                    //            typeof(ZSteamMatchmaking).GetMethod(nameof(ZSteamMatchmaking.UnregisterServer))))
+                    //    .RemoveInstructions(4)
+                    //    .InstructionEnumeration();
+
                     return new CodeMatcher(instructions)
                         .MatchForward(useEnd: false, new CodeMatch(OpCodes.Callvirt, typeof(ZSteamMatchmaking).GetMethod(nameof(ZSteamMatchmaking.ReleaseSessionTicket))))
                         // TODO add a MatchBackward to remove, instead of flat removing
