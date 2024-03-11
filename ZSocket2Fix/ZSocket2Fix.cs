@@ -1,18 +1,13 @@
 ﻿using BepInEx;
 using BepInEx.Configuration;
 using HarmonyLib;
-using Steamworks;
 using System;
-using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.IO;
 using System.Linq;
+using System.Net;
 using System.Reflection;
 using System.Reflection.Emit;
 using UnityEngine;
-using UnityEngine.SceneManagement;
-using UnityEngine.UI;
 //using Jotunn.Utils;
 
 namespace ZSocket2Fix
@@ -23,40 +18,78 @@ namespace ZSocket2Fix
         // BepInEx' plugin metadata
         public const string PluginGUID = "com.crzi.ZSocket2Fix";
         public const string PluginName = "ZSocket2Fix";
-        public const string PluginVersion = "1.0.1";
+        public const string PluginVersion = "1.0.2";
 
         Harmony _harmony;
 
-        static bool m_disableSteam = true;
+        public static ConfigEntry<bool> m_disableSteamSetting;
+        public static ConfigEntry<string> m_serverBindAddressSetting;
 
-        static bool m_isDedicated = false;
+        public static uint m_serverBindAddressIPv4 = 0;
+        public static IPAddress m_serverBindIpAddress = null;
+
+        //static bool m_disableSteam = true;
+
+        public static bool m_isDedicated = false;
 
         private void Awake()
         {
             Game.isModded = true;
 
-            ZLog.LogWarning("ZSocket2Fix Checking for -nosteam arg");
+            m_disableSteamSetting = Config.Bind(
+                "Client",
+                "DisableSteam",
+                true,
+                "Whether to function 100% independent of steam client"
+            );
 
+            m_serverBindAddressSetting = Config.Bind(
+                "Server",
+                "ServerBindAddress",
+                "0.0.0.0",
+                "Custom address to bind server listen socket on"
+            );
+
+            // Determine whether environment is a dedicated headless server
             string[] commandLineArgs = Environment.GetCommandLineArgs();
             for (int i = 0; i < commandLineArgs.Length; i++)
             {
                 string text3 = commandLineArgs[i].ToLower();
-                if (text3 == "-nosteam")
-                {
-                    m_disableSteam = true;
-                } else if (text3 == "-password")
+                if (text3 == "-password")
                 {
                     m_isDedicated = true;
                 }
             }
 
-            if (m_disableSteam && !m_isDedicated)
+            if (m_disableSteamSetting.Value && !m_isDedicated)
             {
                 ZLog.LogWarning("ZSocket2Fix disabling steam integration...");
             }
 
             if (m_isDedicated)
-                m_disableSteam = false;
+            {
+                m_disableSteamSetting.Value = false;
+                // ensure ip is valid
+
+                m_serverBindIpAddress = IPAddress.Parse(m_serverBindAddressSetting.Value);
+
+                var bytes = m_serverBindIpAddress.GetAddressBytes();
+
+                if (BitConverter.IsLittleEndian)
+                {
+                    Array.Reverse(bytes);
+                }
+
+                // TODO test this:
+                //  m_serverBindAddressIPv4 being set to something besides 0 when bytes is not {0, 0, 0, 0}
+
+                m_serverBindAddressIPv4 = BitConverter.ToUInt32(bytes, 0);
+
+                ZLog.LogWarning("Bytes + ip converted:::");
+                ZLog.LogWarning(m_serverBindAddressSetting.Value);
+                ZLog.LogWarning(BitConverter.ToString(bytes));
+                ZLog.LogWarning(m_serverBindAddressIPv4);
+            }
 
             _harmony = Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly(), harmonyInstanceId: PluginGUID);
 
@@ -75,7 +108,7 @@ namespace ZSocket2Fix
             [HarmonyPatch(nameof(DLCMan.CheckDLCsSTEAM))]
             static bool CheckDLCsSTEAMPrefix(ref DLCMan __instance)
             {
-                return !m_disableSteam;
+                return !m_disableSteamSetting.Value;
             }
         }
 
@@ -93,22 +126,22 @@ namespace ZSocket2Fix
             [HarmonyPatch(nameof(FejdStartup.InitializeSteam))]
             static bool InitializeSteamPrefix(ref bool __result)
             {
-                if (m_disableSteam)
+                if (m_disableSteamSetting.Value)
                 {
                     __result = true;
                 }
-                return !m_disableSteam;
+                return !m_disableSteamSetting.Value;
             }
 
             [HarmonyPrefix]
             [HarmonyPatch(nameof(FejdStartup.AwakePlayFab))]
             static bool AwakePlayfabPrefix(ref bool __result)
             {
-                if (m_disableSteam)
+                if (m_disableSteamSetting.Value)
                 {
                     __result = true;
                 }
-                return !m_disableSteam;
+                return !m_disableSteamSetting.Value;
             }
         }
 
@@ -119,7 +152,7 @@ namespace ZSocket2Fix
             [HarmonyPatch(nameof(FileHelpers.UpdateCloudEnabledStatus))]
             static bool UpdateCloudEnabledStatusPrefix()
             {
-                return !m_disableSteam;
+                return !m_disableSteamSetting.Value;
             }
         }
 
@@ -130,7 +163,7 @@ namespace ZSocket2Fix
             [HarmonyPatch(nameof(ServerList.RequestServerList))]
             static bool RequestServerListPrefix(ref ServerList __instance)
             {
-                return !m_disableSteam;
+                return !m_disableSteamSetting.Value;
             }
 
             //this.UpdateServerListGui(false);
@@ -138,11 +171,11 @@ namespace ZSocket2Fix
             [HarmonyPatch(nameof(ServerList.OnServerFilterChanged))]
             static bool OnServerFilterChangedPrefix(ref ServerList __instance)
             {
-                if (m_disableSteam)
+                if (m_disableSteamSetting.Value)
                 {
                     __instance.UpdateServerListGui(false);
                 }
-                return !m_disableSteam;
+                return !m_disableSteamSetting.Value;
             }
         }
 
@@ -153,23 +186,61 @@ namespace ZSocket2Fix
             [HarmonyPatch(nameof(SteamManager.Initialize))]
             static bool InitializePrefix(ref bool __result)
             {
-                if (m_disableSteam) {
+                if (m_disableSteamSetting.Value)
+                {
                     __result = true;
                 }
-                return !m_disableSteam;
+                return !m_disableSteamSetting.Value;
             }
 
             [HarmonyPrefix]
             [HarmonyPatch(nameof(SteamManager.Initialized), MethodType.Getter)]
             static bool InitializedPrefix(ref bool __result)
             {
-                if (m_disableSteam)
+                if (m_disableSteamSetting.Value)
                 {
                     __result = true;
                 }
-                return !m_disableSteam;
+                return !m_disableSteamSetting.Value;
+            }
+
+        }
+
+        public static void dump_instructions(IEnumerable<CodeInstruction> instructions)
+        {
+            for (int i = 0; i < instructions.Count(); i++)
+            {
+                var inst = instructions.ElementAt(i);
+                var opr = inst.operand;
+
+                string result = opr?.GetType()?.ToString() ?? "";
+
+                var info = opr as MethodInfo;
+                if (info != null)
+                {
+                    result += ", " + info.Name + ", " + info.Module?.FullyQualifiedName;
+                }
+
+                ZLog.Log(i + ": " + inst.opcode + " | "
+                    + opr + " ||| " + result);
+
+                //ZLog.LogWarning(i + ": " + inst.opcode + " | " 
+                //    + opr + ", " + opr?.GetType()?.ToString() + " | " + (opr?.GetType()?.IsSubclassOf(typeof(MethodInfo)) ? opr. : ""));
             }
         }
+
+        //static void my_test_caller_do_not_use()
+        //{
+        //    bool status = GameServer.Init(m_serverBindAddressIPv4, 0, 2456, 2456 + 1, EServerMode.eServerModeNoAuthentication, "1.0.0.0");
+        //    if (!status)
+        //        throw new Exception("bad");
+        //}
+        //
+        //// TODO detemine whether return is required to be passed 
+        //static bool AwakeDelegate(uint unIP, ushort usSteamPort, ushort usGamePort, ushort usQueryPort, EServerMode eServerMode, string pchVersionString)
+        //{
+        //    return GameServer.Init(m_serverBindAddressIPv4, usSteamPort, usGamePort, usQueryPort, eServerMode, pchVersionString);
+        //}
 
         [HarmonyPatch(typeof(PrivilegeManager))]
         class PrivilegeManagerPatch
@@ -178,11 +249,11 @@ namespace ZSocket2Fix
             [HarmonyPatch(nameof(PrivilegeManager.CanAccessOnlineMultiplayer), MethodType.Getter)]
             static bool CanAccessOnlineMultiplayerPrefix(ref bool __result)
             {
-                if (m_disableSteam)
+                if (m_disableSteamSetting.Value)
                 {
                     __result = true;
                 }
-                return !m_disableSteam;
+                return !m_disableSteamSetting.Value;
             }
         }
 
@@ -195,14 +266,16 @@ namespace ZSocket2Fix
             {
                 var match = new CodeMatcher(instructions);
 
-                if (m_disableSteam)
+                ZLog.Log("Original ZNet.Awake");
+                dump_instructions(instructions);
+
+                if (m_disableSteamSetting.Value)
                 {
-                    // only valid with client?
+                    // Force remove any client match for GetPersonaName
                     match = match
                         // Remove SteamFriends.GetPersonaName
-                        .MatchForward(useEnd: false, new CodeMatch(inst => inst?.operand?.ToString().Contains("GetPersonaName") ?? false));
-                    //.SetAndAdvance(OpCodes.Ldstr, "nosteam");
-
+                        .MatchForward(useEnd: false, new CodeMatch(ci => ci.opcode.Equals(OpCodes.Call) && ci.operand.ToString().Contains(nameof(Steamworks.SteamFriends.GetPersonaName))));
+                    
                     if (match.IsValid)
                         match = match.SetAndAdvance(OpCodes.Ldstr, "nosteam");
                     else
@@ -211,7 +284,7 @@ namespace ZSocket2Fix
                     match = match
                         // Prevent openserver clause
                         .MatchForward(useEnd: false, new CodeMatch(OpCodes.Ldsfld, typeof(ZNet).GetField(nameof(ZNet.m_openServer))))
-                        .SetAndAdvance(OpCodes.Ldc_I4_0, null);
+                        .SetInstruction(new CodeInstruction(OpCodes.Ldc_I4_0));
                 }
                 return match
                     // postfix
@@ -225,11 +298,13 @@ namespace ZSocket2Fix
 
             [HarmonyTranspiler]
             [HarmonyPatch(nameof(ZNet.StopAll))]
-            static IEnumerable<CodeInstruction> StopAllTranspiler(IEnumerable<CodeInstruction> instructions) {
-                if (m_disableSteam)
+            static IEnumerable<CodeInstruction> StopAllTranspiler(IEnumerable<CodeInstruction> instructions)
+            {
+                if (m_disableSteamSetting.Value)
                 {
                     return new CodeMatcher(instructions)
                         .MatchForward(useEnd: false, new CodeMatch(OpCodes.Callvirt, typeof(ZSteamMatchmaking).GetMethod(nameof(ZSteamMatchmaking.ReleaseSessionTicket))))
+                        // TODO add a MatchBackward to remove, instead of flat removing
                         .Advance(-1)
                         .RemoveInstructions(4)
                         .InstructionEnumeration();
@@ -241,17 +316,18 @@ namespace ZSocket2Fix
             [HarmonyPatch(nameof(ZNet.SendPeerInfo))]
             static IEnumerable<CodeInstruction> SendPeerInfoTranspiler(IEnumerable<CodeInstruction> instructions)
             {
-                if (m_disableSteam)
+                if (m_disableSteamSetting.Value)
                 {
                     return new CodeMatcher(instructions)
                         .MatchForward(useEnd: false, new CodeMatch(OpCodes.Callvirt, typeof(ZSteamMatchmaking).GetMethod(nameof(ZSteamMatchmaking.RequestSessionTicket))))
+                        // TODO add a MatchBackward to target get_instance and remove from there, instead of removing flat instructions
                         .Advance(-2)
                         .RemoveInstructions(3)
 
                         // instantiate an empty array in place of RequestSessionTicket call
                         .InsertAndAdvance(
-                            new CodeInstruction(OpCodes.Ldc_I4_0, null),
-                            new CodeInstruction(OpCodes.Newarr, typeof(byte))
+                            new CodeInstruction(OpCodes.Ldc_I4_0), // Of size 0
+                            new CodeInstruction(OpCodes.Newarr, typeof(byte)) // new byte[]
                         )
 
                         .InstructionEnumeration();
@@ -303,9 +379,8 @@ namespace ZSocket2Fix
             [HarmonyPatch(nameof(ZSteamMatchmaking.Initialize))]
             static bool InitializePrefix()
             {
-                return !m_disableSteam;
+                return !m_disableSteamSetting.Value;
             }
-        }
+        }        
     }
-
 }
