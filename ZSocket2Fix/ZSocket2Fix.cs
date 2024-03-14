@@ -385,7 +385,7 @@ namespace ZSocket2Fix
                 }
 
                 ZSocket2 socket = new ZSocket2();
-                socket.StartHost(2456);
+                socket.StartHost(ZSteamSocket.m_steamDataPort);
                 __instance.m_hostSocket = socket;
                 ZLog.LogWarning("Started TCP Custom Socket");
             }
