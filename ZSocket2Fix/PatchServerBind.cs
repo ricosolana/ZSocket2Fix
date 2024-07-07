@@ -27,8 +27,8 @@ namespace ZSocket2Fix
                     // we patch steam server 
                     //nameof(ZRpc.Invoke)
 
-                    ZLog.LogWarning("Original Awake:");
-                    ZSocket2Fix.dump_instructions(instructions);
+                    //ZLog.LogWarning("Original Awake:");
+                    //ZSocket2Fix.dump_instructions(instructions);
 
                     //((MethodInfo)null).Module.Name
 
@@ -59,9 +59,9 @@ namespace ZSocket2Fix
                         //    Transpilers.EmitDelegate<Func<uint, ushort, ushort, ushort, EServerMode, string, bool>>(AwakeDelegate).operand)
                         .InstructionEnumeration();
 
-                    ZLog.LogWarning("Patched Awake:");
+                    //ZLog.LogWarning("Patched Awake:");
 
-                    ZSocket2Fix.dump_instructions(patched);
+                    //ZSocket2Fix.dump_instructions(patched);
 
                     return patched;
                 }
@@ -145,8 +145,8 @@ namespace ZSocket2Fix
                 //  and if on custom bind
                 if (!ZSocket2Fix.m_disableSteamSetting.Value && ZSocket2Fix.m_isDedicated && ZSocket2Fix.m_serverBindAddressIPv4 != 0)
                 {
-                    ZLog.LogWarning("Original StartHost:");
-                    ZSocket2Fix.dump_instructions(instructions);
+                    //ZLog.LogWarning("Original StartHost:");
+                    //ZSocket2Fix.dump_instructions(instructions);
                     var patched = new CodeMatcher(instructions)
                         .MatchForward(useEnd: false, new CodeMatch(ci => ci.opcode.Equals(OpCodes.Stfld) && ci.operand.ToString().Contains(nameof(SteamNetworkingIPAddr.m_port))))
                         //.Advance(-4), 
@@ -157,8 +157,8 @@ namespace ZSocket2Fix
                         .Set(OpCodes.Callvirt, AccessTools.Method(typeof(SteamNetworkingIPAddr), nameof(SteamNetworkingIPAddr.SetIPv4)))
                         .InstructionEnumeration();
 
-                    ZLog.LogWarning("Patched StartHost:");
-                    ZSocket2Fix.dump_instructions(patched);
+                    //ZLog.LogWarning("Patched StartHost:");
+                    //ZSocket2Fix.dump_instructions(patched);
 
                     return patched;
                 }

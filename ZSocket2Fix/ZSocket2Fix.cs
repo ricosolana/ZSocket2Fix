@@ -9,6 +9,9 @@ using System.Reflection;
 using System.Reflection.Emit;
 using UnityEngine;
 //using Jotunn.Utils;
+using Jotunn.Managers;
+using UnityEngine.UI;
+using TMPro;
 
 namespace ZSocket2Fix
 {
@@ -27,10 +30,15 @@ namespace ZSocket2Fix
 
         public static uint m_serverBindAddressIPv4 = 0;
         public static IPAddress m_serverBindIpAddress = null;
+        public static bool m_connectUsingTCP = false;
 
         //static bool m_disableSteam = true;
 
         public static bool m_isDedicated = false;
+
+        public static GameObject ZS2Button;
+
+        public static BepInEx.Logging.ManualLogSource LOGGER;
 
         private void Awake()
         {
@@ -39,8 +47,8 @@ namespace ZSocket2Fix
             m_disableSteamSetting = Config.Bind(
                 "Client",
                 "DisableSteam",
-                true,
-                "Whether to function 100% independent of steam client"
+                false,
+                "Whether to disable steam integration"
             );
 
             m_serverBindAddressSetting = Config.Bind(
@@ -49,6 +57,18 @@ namespace ZSocket2Fix
                 "0.0.0.0",
                 "Custom address to bind server listen socket on"
             );
+
+            // woodpanel_serverlist
+            //GUIManager.
+
+            // call servergui creation within awake of ServerList
+
+            LOGGER = Logger;
+
+            //GUIManager.Instance.CreateButton("Connect with TCP")
+
+            //ZS2Button = new GameObject("ZS2", typeof(Button));
+            //ZS2Button.transform.SetParent(ServerList.instance.m_serverListRoot);
 
             // Determine whether environment is a dedicated headless server
             string[] commandLineArgs = Environment.GetCommandLineArgs();
@@ -65,7 +85,7 @@ namespace ZSocket2Fix
             {
                 ZLog.LogWarning("ZSocket2Fix disabling steam integration...");
             }
-
+            
             if (m_isDedicated)
             {
                 m_disableSteamSetting.Value = false;
@@ -96,9 +116,104 @@ namespace ZSocket2Fix
             ZLog.LogWarning("Loaded ZSocket2Fix");
         }
 
-        private void Destroy()
+        // Update "Connect with TCP" button
+        [HarmonyPatch(typeof(ServerList))]
+        class ServerListPatch
         {
-            _harmony?.UnpatchSelf();
+            [HarmonyPostfix]
+            //[HarmonyPatch(nameof(ZNet.Awake))]
+            [HarmonyPatch(nameof(ServerList.OnEnable))]
+            public static void OnEnablePostfix(ServerList __instance)
+            {
+                //LOGGER.LogError("ServerList Awake");
+
+                if (ZS2Button != null)
+                {
+                    // already initialized
+                    return;
+                }
+
+                if (GUIManager.Instance == null)
+                {
+                    LOGGER.LogError("GUIManager instance is null");
+                    return;
+                }
+
+
+
+                m_connectUsingTCP = false;
+
+                var joinButton = ServerList.instance.m_joinGameButton;
+
+                // Scale it down first and move up
+                var rect = joinButton.GetComponent<RectTransform>();
+
+                var delta = rect.sizeDelta; //.y *= 0.5;
+                rect.sizeDelta = new Vector2(delta.x, delta.y * 0.55f);
+
+                joinButton.transform.position += new Vector3(0, 17);
+
+                // TODO create a copy of 
+                ZS2Button = Instantiate(joinButton.gameObject, joinButton.transform.parent);
+                ZS2Button.GetComponent<Button>().onClick.AddListener(() =>
+                {
+                    // connect using TCP
+                    m_connectUsingTCP = true;
+                    FejdStartup.instance.OnJoinStart();
+                });
+
+                ZS2Button.transform.position = new Vector2(rect.position.x, rect.position.y - rect.rect.height);
+
+                ZS2Button.SetActive(true);
+
+                ZS2Button.name = "ZS2Button";
+
+                //ZS2Button.GetComponentInChildren<Text>().text = "Connect with TCP";
+
+                ZS2Button.GetComponentInChildren<TextMeshProUGUI>().text = "Connect with TCP";
+
+
+                /*
+                ZLog.LogError("joinGameButton: "
+                    + rect.anchorMin + ", "
+                    + rect.anchorMax + ", "
+                    + rect.position + ", "
+                    + rect.sizeDelta + ", "
+                    + joinButton.transform.parent.name + ", "
+                    //+ rect.parent.name
+                    + joinButton.transform.parent.parent?.name
+                );
+
+                ZS2Button = GUIManager.Instance.CreateButton(
+                    text: "Connect with TCP",
+                    parent: joinButton.transform.parent, // ServerList.instance.m_serverListRoot.transform,
+                    anchorMin: rect.anchorMin, //new Vector2(0.5f, 0.5f),
+                    anchorMax: rect.anchorMax, // + new Vector2(0, 0.05f), //new Vector2(0.5f, 0.5f),
+                    position: new Vector2(0, 0), // new Vector2(rect.position.x, rect.position.y), // - rect.rect.height - 3),
+                    //width: 250f,
+                    //height: 60f
+                    width: rect.rect.width,
+                    height: rect.rect.height
+                );
+                */
+
+                //ZS2Button.GetComponent<Button>().onClick.AddListener(() =>
+                //{
+                //    // connect using TCP
+                //    m_connectUsingTCP = true;
+                //    FejdStartup.instance.OnJoinStart();
+                //});
+            }
+
+            [HarmonyPostfix]
+            [HarmonyPatch(nameof(ServerList.UpdateButtons))]
+            static void UpdateButtonsPostfix(ref ServerList __instance)
+            {
+                int selectedServer = __instance.GetSelectedServer();
+                bool isSelected = selectedServer >= 0;
+
+                ZS2Button.GetComponent<Button>().interactable = isSelected;
+            }
         }
 
         [HarmonyPatch(typeof(DLCMan))]
@@ -119,7 +234,10 @@ namespace ZSocket2Fix
             [HarmonyPatch(nameof(FejdStartup.TransitionToMainScene))]
             static void TransitionToMainScenePrefix(ref FejdStartup __instance)
             {
-                ZNet.m_onlineBackend = OnlineBackendType.CustomSocket;
+                if (ZNet.m_isServer || m_connectUsingTCP)
+                {
+                    ZNet.m_onlineBackend = OnlineBackendType.CustomSocket;
+                }
             }
 
             [HarmonyPrefix]
@@ -152,29 +270,6 @@ namespace ZSocket2Fix
             [HarmonyPatch(nameof(FileHelpers.UpdateCloudEnabledStatus))]
             static bool UpdateCloudEnabledStatusPrefix()
             {
-                return !m_disableSteamSetting.Value;
-            }
-        }
-
-        [HarmonyPatch(typeof(ServerList))]
-        class ServerListPatch
-        {
-            [HarmonyPrefix]
-            [HarmonyPatch(nameof(ServerList.RequestServerList))]
-            static bool RequestServerListPrefix(ref ServerList __instance)
-            {
-                return !m_disableSteamSetting.Value;
-            }
-
-            //this.UpdateServerListGui(false);
-            [HarmonyPrefix]
-            [HarmonyPatch(nameof(ServerList.OnServerFilterChanged))]
-            static bool OnServerFilterChangedPrefix(ref ServerList __instance)
-            {
-                if (m_disableSteamSetting.Value)
-                {
-                    __instance.UpdateServerListGui(false);
-                }
                 return !m_disableSteamSetting.Value;
             }
         }
@@ -266,8 +361,8 @@ namespace ZSocket2Fix
             {
                 var match = new CodeMatcher(instructions);
 
-                ZLog.Log("Original ZNet.Awake");
-                dump_instructions(instructions);
+                //ZLog.Log("Original ZNet.Awake");
+                //dump_instructions(instructions);
 
                 if (m_disableSteamSetting.Value)
                 {
@@ -356,22 +451,30 @@ namespace ZSocket2Fix
 
             [HarmonyPrefix]
             [HarmonyPatch(nameof(ZNet.Start))]
-            static void TransitionToMainScenePrefix(ref ZNet __instance)
+            static void StartPrefix(ref ZNet __instance)
             {
-                ZNet.m_onlineBackend = OnlineBackendType.CustomSocket;
+                if (ZNet.m_isServer || m_connectUsingTCP)
+                {
+                    ZNet.m_onlineBackend = OnlineBackendType.CustomSocket;
+                }
             }
 
+            // Client TCP connect ONLY
             [HarmonyPostfix]
             [HarmonyPatch(nameof(ZNet.Update))]
             static void UpdatePostfix(ref ZNet __instance)
             {
                 if (!ZNet.m_isServer)
                 {
-                    __instance.UpdateClientConnector(Time.deltaTime);
+                    if (m_connectUsingTCP)
+                    {
+                        __instance.UpdateClientConnector(Time.deltaTime);
+                    }
                 }
             }
         }
 
+        // Patches TCP server ONLY
         static void ZNetAwakePostfixDelegate()
         {
             ZNet __instance = ZNet.instance;
