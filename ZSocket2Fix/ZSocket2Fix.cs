@@ -21,7 +21,7 @@ namespace ZSocket2Fix
         // BepInEx' plugin metadata
         public const string PluginGUID = "com.crzi.ZSocket2Fix";
         public const string PluginName = "ZSocket2Fix";
-        public const string PluginVersion = "1.0.2";
+        public const string PluginVersion = "1.0.3";
 
         Harmony _harmony;
 
