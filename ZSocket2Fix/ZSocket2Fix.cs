@@ -9,7 +9,7 @@ using System.Reflection;
 using System.Reflection.Emit;
 using UnityEngine;
 //using Jotunn.Utils;
-using Jotunn.Managers;
+//using Jotunn.Managers;
 using UnityEngine.UI;
 using TMPro;
 
@@ -40,9 +40,10 @@ namespace ZSocket2Fix
 
         public static BepInEx.Logging.ManualLogSource LOGGER;
 
-        private void Awake()
+        private void Awake() 
         {
             Game.isModded = true;
+            LOGGER = Logger;
 
             m_disableSteamSetting = Config.Bind(
                 "Client",
@@ -50,6 +51,14 @@ namespace ZSocket2Fix
                 false,
                 "Whether to disable steam integration"
             );
+
+            if (m_disableSteamSetting.Value)
+            {
+                // Because the devs keep screwing things around
+                LOGGER.LogWarning("Steam modification is currently NYI");
+            }
+
+            m_disableSteamSetting.Value = false;
 
             m_serverBindAddressSetting = Config.Bind(
                 "Server",
@@ -63,7 +72,7 @@ namespace ZSocket2Fix
 
             // call servergui creation within awake of ServerList
 
-            LOGGER = Logger;
+            
 
             //GUIManager.Instance.CreateButton("Connect with TCP")
 
@@ -133,11 +142,12 @@ namespace ZSocket2Fix
                     return;
                 }
 
-                if (GUIManager.Instance == null)
-                {
-                    LOGGER.LogError("GUIManager instance is null");
-                    return;
-                }
+                // Maybe only if we were using Jotunn...
+                //if (GUIManager.Instance == null)
+                //{
+                //    LOGGER.LogError("GUIManager instance is null");
+                //    return;
+                //}
 
 
 
@@ -158,6 +168,7 @@ namespace ZSocket2Fix
                 ZS2Button.GetComponent<Button>().onClick.AddListener(() =>
                 {
                     // connect using TCP
+                    ZLog.LogWarning("Connecting over TCP...");
                     m_connectUsingTCP = true;
                     FejdStartup.instance.OnJoinStart();
                 });
@@ -263,6 +274,8 @@ namespace ZSocket2Fix
             }
         }
 
+        // The devs decided to make everything overly convoluted with Splatform... virtuals-"everythings" make tracking difficult
+        /*
         [HarmonyPatch(typeof(FileHelpers))]
         class FileHelpersPatch
         {
@@ -273,6 +286,7 @@ namespace ZSocket2Fix
                 return !m_disableSteamSetting.Value;
             }
         }
+        */
 
         [HarmonyPatch(typeof(SteamManager))]
         class SteamManagerPatch
@@ -337,20 +351,21 @@ namespace ZSocket2Fix
         //    return GameServer.Init(m_serverBindAddressIPv4, usSteamPort, usGamePort, usQueryPort, eServerMode, pchVersionString);
         //}
 
-        [HarmonyPatch(typeof(PrivilegeManager))]
-        class PrivilegeManagerPatch
-        {
-            [HarmonyPrefix]
-            [HarmonyPatch(nameof(PrivilegeManager.CanAccessOnlineMultiplayer), MethodType.Getter)]
-            static bool CanAccessOnlineMultiplayerPrefix(ref bool __result)
-            {
-                if (m_disableSteamSetting.Value)
-                {
-                    __result = true;
-                }
-                return !m_disableSteamSetting.Value;
-            }
-        }
+        //THANKS DEVS!!! I CANT PROPERLY MAINTAIN MY CODE SO THIS IS THE REWWRD!!
+        //[HarmonyPatch(typeof(PrivilegeManager))]
+        //class PrivilegeManagerPatch
+        //{
+        //    [HarmonyPrefix]
+        //    [HarmonyPatch(nameof(PrivilegeManager.CanAccessOnlineMultiplayer), MethodType.Getter)]
+        //    static bool CanAccessOnlineMultiplayerPrefix(ref bool __result)
+        //    {
+        //        if (m_disableSteamSetting.Value)
+        //        {
+        //            __result = true;
+        //        }
+        //        return !m_disableSteamSetting.Value;
+        //    }
+        //}
 
         [HarmonyPatch(typeof(ZNet))]
         class ZNetPatch
@@ -426,6 +441,19 @@ namespace ZSocket2Fix
                 return instructions;
             }
 
+            [HarmonyPrefix]
+            [HarmonyPatch(nameof(ZNet.Connect), new[] { typeof(string), typeof(int) })]
+            static void ConnectPrefix(ref ZNet __instance, ref string host, ref int port)
+            {
+                var idx = host.IndexOf(':');
+                if (idx > -1)
+                {
+                    // host for some reason has the port attached to the end
+                    host = host.Substring(0, idx);
+                    ZLog.LogWarning("new trimmed host: " + host);
+                }
+            }
+
             [HarmonyTranspiler]
             [HarmonyPatch(nameof(ZNet.SendPeerInfo))]
             static IEnumerable<CodeInstruction> SendPeerInfoTranspiler(IEnumerable<CodeInstruction> instructions)
@@ -449,6 +477,46 @@ namespace ZSocket2Fix
                 return instructions;
             }
 
+            /*
+            [HarmonyPatch(typeof(ZConnector2))]
+            class ZConnector2Patch
+            {
+                [HarmonyPrefix]
+                [HarmonyPatch(nameof(ZConnector2.OnHostLookupDone))]
+                static bool OnHostLookupDonePrefix(ref ZConnector2 __instance, ref IAsyncResult res)
+                {
+                    ZLog.LogWarning("ZConnector2 PRE");
+
+                    //IPHostEntry iphostEntry = Dns.EndGetHostEntry(res);
+                    //
+                    //foreach (var ip in iphostEntry.AddressList)
+                    //{
+                    //    ZLog.LogWarning("Address: " + ip.ToString());
+                    //}
+                    //
+                    //ZLog.LogWarning("---------");
+                    //
+                    //iphostEntry.AddressList = __instance.KeepInetAddrs(iphostEntry.AddressList);
+                    //
+                    //foreach (var ip in iphostEntry.AddressList)
+                    //{
+                    //    ZLog.LogWarning("Address: " + ip.ToString());
+                    //}
+                    //
+                    //ZLog.LogError("CANCELLED PREFIX! todo remove this after");
+                    //return false; //WE CANCEL for now...
+                    
+                    return true;// continue...
+                }
+
+                [HarmonyPostfix]
+                [HarmonyPatch(nameof(ZConnector2.OnHostLookupDone))]
+                static void OnHostLookupDonePostfix(ref ZConnector2 __instance, ref IAsyncResult res)
+                {
+                    ZLog.LogWarning("ZConnector2 POST");
+                }
+            }*/
+
             [HarmonyPrefix]
             [HarmonyPatch(nameof(ZNet.Start))]
             static void StartPrefix(ref ZNet __instance)
@@ -468,6 +536,7 @@ namespace ZSocket2Fix
                 {
                     if (m_connectUsingTCP)
                     {
+                        //ZLog.LogWarning("Updating TCP connector...");
                         __instance.UpdateClientConnector(Time.deltaTime);
                     }
                 }
